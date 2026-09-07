@@ -1,0 +1,47 @@
+[package]
+name = "ferrite-sfu"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+description = "A small, encryption-agnostic WebRTC SFU for group audio and screen sharing"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/AbabilX/ferrite-sfu"
+keywords = ["webrtc", "sfu", "rtc", "voip"]
+categories = ["network-programming", "multimedia"]
+publish = false
+
+[lib]
+name = "ferrite_sfu"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ferrite-sfu"
+path = "src/main.rs"
+
+[dependencies]
+str0m = { version = "0.23", default-features = false, features = ["aws-lc-rs"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "sync", "time", "signal"] }
+axum = { version = "0.8", features = ["ws"] }
+futures-util = { version = "0.3", default-features = false, features = ["sink"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+jsonwebtoken = "9"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "2"
+rand = "0.8"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+hmac = "0.12"
+sha2 = "0.10"
+base64 = "0.22"
+uuid = { version = "1", features = ["v4"] }
+
+[dev-dependencies]
+tungstenite = "0.24"
+serde_json = "1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+panic = "abort"

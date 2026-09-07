@@ -1,0 +1,86 @@
+name: Deploy SFU
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  # A broken SFU drops every live call, and the media loop is the one part of
+  # this service with no staging. The suite is seconds once the cache is warm.
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      - run: cargo test --locked
+
+  build-and-deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Docker refuses uppercase in a repository name and the GitHub org is
+      # "AbabilX", so github.repository_owner cannot be used verbatim — the tag
+      # would be rejected as an invalid reference. Expressions have no
+      # lowercase function, hence the shell.
+      - name: Resolve image name
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY_OWNER,,}/ferrite-sfu" >> "$GITHUB_ENV"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build & push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          # amd64 only and deliberately: an arm64 Rust build runs under QEMU
+          # here and takes tens of minutes for a host nothing deploys to.
+          platforms: linux/amd64
+          tags: ${{ env.IMAGE }}:latest,${{ env.IMAGE }}:${{ github.sha }}
+          cache-from: type=gha,scope=sfu
+          cache-to: type=gha,scope=sfu,mode=max
+
+      # The deploy URL is a bearer credential: anyone holding it can trigger a
+      # deploy. This repository is public, so it lives in a repository secret
+      # and never in the tree. Fork pull requests cannot read it, hence the
+      # guard; on a real push a missing value fails the run, because an image
+      # that builds green and quietly never deploys is the worse outcome.
+      - name: Trigger Dokploy deploy
+        if: ${{ github.event_name != 'pull_request' }}
+        env:
+          # Accepts the value as either a repository secret or a repository
+          # variable, because the two are stored on the same settings page and
+          # are easy to mix up. An Environment secret needs `environment:` on
+          # the job as well; a plain repository one does not.
+          DOKPLOY_DEPLOY_URL: ${{ secrets.DOKPLOY_DEPLOY_URL || vars.DOKPLOY_DEPLOY_URL }}
+        run: |
+          if [ -z "$DOKPLOY_DEPLOY_URL" ]; then
+            echo "::error::DOKPLOY_DEPLOY_URL is empty. The image was pushed but"
+            echo "::error::nothing was deployed. Check Settings -> Secrets and"
+            echo "::error::variables -> Actions, under either Secrets or Variables."
+            exit 1
+          fi
+          STATUS=$(curl -sS -o /dev/null -w "%{http_code}" \
+            --retry 3 --retry-all-errors \
+            -X POST "$DOKPLOY_DEPLOY_URL")
+          echo "SFU Dokploy response: $STATUS"
+          [ "$STATUS" -ge 200 ] && [ "$STATUS" -lt 300 ] || exit 1

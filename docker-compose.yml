@@ -1,0 +1,37 @@
+# Local ferrite-sfu.
+#
+#   cp .env.example .env    # set SFU_SHARED_SECRET
+#   docker compose up --build -d
+#   docker compose logs -f
+#
+# SFU_PUBLIC_IP is the address browsers are told to send media to. 127.0.0.1 is
+# right for a browser on this machine; on a LAN or a server it must be the
+# address clients can actually reach, or ICE will never connect.
+#
+# host.docker.internal is how the container reaches an API running on the host.
+# On Linux, add:  extra_hosts: ["host.docker.internal:host-gateway"]
+
+services:
+  sfu:
+    build: .
+    image: ferrite-sfu:local
+    container_name: ferrite-sfu
+    restart: unless-stopped
+    ports:
+      - "7898:7898/tcp"   # signaling WebSocket + /healthz
+      - "7899:7899/udp"   # all media, all rooms, one port
+    environment:
+      SFU_BIND_HTTP: 0.0.0.0:7898
+      SFU_BIND_UDP: 0.0.0.0:7899
+      SFU_PUBLIC_IP: ${SFU_PUBLIC_IP:-127.0.0.1}
+      # Must match the API that mints join tokens. Left unset the SFU refuses to
+      # start and says so — a compose-level ${VAR:?} guard would instead break
+      # every subcommand, including `logs` and `ps`.
+      SFU_SHARED_SECRET: ${SFU_SHARED_SECRET:-}
+      SFU_WEBHOOK_URL: ${SFU_WEBHOOK_URL:-http://host.docker.internal:7896/api/webhooks/sfu}
+      SFU_WEBHOOK_SECRET: ${SFU_WEBHOOK_SECRET:-}
+      SFU_ICE_LITE: ${SFU_ICE_LITE:-false}
+      SFU_MAX_ROOM_PEERS: ${SFU_MAX_ROOM_PEERS:-16}
+      RUST_LOG: ${RUST_LOG:-ferrite_sfu=info,str0m=warn}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

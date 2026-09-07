@@ -1,0 +1,42 @@
+<!doctype html>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ferrite-sfu diagnostics</title>
+<style>
+  body { font: 15px/1.6 system-ui, sans-serif; margin: 0; padding: 2rem; background: #0c0c14; color: #f1f5f9; }
+  h1 { font-size: 1.1rem; margin: 0 0 1.2rem; }
+  p { margin: .4rem 0; }
+  code { background: #1a1a28; padding: .1rem .35rem; border-radius: 4px; }
+  .ok { color: #22c55e; } .bad { color: #f43f5e; } .wait { color: #f59e0b; }
+</style>
+<h1>ferrite-sfu reachability</h1>
+<p class="ok">HTTP: this page loaded, so the browser reached the SFU over TCP.</p>
+<p id="ws" class="wait">WebSocket: starting…</p>
+<p id="agent"></p>
+<script>
+  var out = document.getElementById("ws");
+  var url = location.origin.replace(/^http/, "ws") + "/ws";
+  document.getElementById("agent").innerHTML = "Origin <code>" + location.origin + "</code>";
+  out.textContent = "WebSocket: connecting to " + url + " …";
+  try {
+    var socket = new WebSocket(url);
+    socket.onopen = function () {
+      out.className = "ok";
+      out.textContent = "WebSocket: OPEN — this browser can reach the SFU. " + url;
+      socket.close();
+    };
+    socket.onerror = function () {
+      out.className = "bad";
+      out.textContent = "WebSocket: FAILED — something is blocking " + url;
+    };
+    socket.onclose = function (event) {
+      if (out.className === "ok") return;
+      out.className = "bad";
+      out.textContent =
+        "WebSocket: CLOSED before opening (code " + event.code + ") — blocked or refused at " + url;
+    };
+  } catch (error) {
+    out.className = "bad";
+    out.textContent = "WebSocket: threw immediately — " + error;
+  }
+</script>
