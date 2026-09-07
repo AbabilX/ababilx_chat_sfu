@@ -37,7 +37,8 @@ base64 = "0.22"
 uuid = { version = "1", features = ["v4"] }
 
 [dev-dependencies]
-tungstenite = "0.24"
+# rustls, so the suite can be pointed at a real deployment over wss://.
+tungstenite = { version = "0.24", features = ["rustls-tls-native-roots"] }
 serde_json = "1"
 
 [profile.release]

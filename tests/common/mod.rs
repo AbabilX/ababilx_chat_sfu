@@ -4,7 +4,7 @@
 
 pub mod browser;
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener};
+use std::net::{IpAddr, Ipv4Addr, TcpListener};
 use std::sync::Arc;
 
 use ferrite_sfu::{config::Config, sfu, signal};
@@ -12,13 +12,16 @@ use jsonwebtoken::{encode, Algorithm, EncodingKey, Header};
 use serde_json::json;
 
 pub struct TestServer {
-    pub http: SocketAddr,
+    /// The signaling endpoint as a URL, not a socket address: a deployment is
+    /// reached by hostname over TLS through a proxy, and its media port is the
+    /// only one published directly.
+    pub ws_url: String,
     pub secret: String,
 }
 
 impl TestServer {
     pub fn ws_url(&self) -> String {
-        format!("ws://{}/ws", self.http)
+        self.ws_url.clone()
     }
 
     pub fn token(&self, room: &str, user: &str) -> String {
@@ -51,14 +54,32 @@ impl TestServer {
 fn external_server() -> Option<TestServer> {
     let url = std::env::var("FERRITE_SFU_TEST_URL").ok()?;
     let secret = std::env::var("FERRITE_SFU_TEST_SECRET").ok()?;
-    let http = url
-        .trim_start_matches("ws://")
-        .trim_start_matches("http://")
-        .trim_end_matches("/ws")
-        .trim_end_matches('/')
-        .parse()
-        .expect("FERRITE_SFU_TEST_URL must be host:port");
-    Some(TestServer { http, secret })
+    Some(TestServer {
+        ws_url: normalize_ws_url(&url),
+        secret,
+    })
+}
+
+/// Accepts what an operator actually has to hand — `wss://sfu.example.com`,
+/// `https://sfu.example.com/ws`, `127.0.0.1:7898` — and yields a URL tungstenite
+/// can dial. `http`/`https` are translated rather than rejected because that is
+/// what the browser-facing config holds.
+fn normalize_ws_url(raw: &str) -> String {
+    let trimmed = raw.trim().trim_end_matches('/');
+    let with_scheme = if let Some(rest) = trimmed.strip_prefix("https://") {
+        format!("wss://{rest}")
+    } else if let Some(rest) = trimmed.strip_prefix("http://") {
+        format!("ws://{rest}")
+    } else if trimmed.starts_with("ws://") || trimmed.starts_with("wss://") {
+        trimmed.to_string()
+    } else {
+        format!("ws://{trimmed}")
+    };
+    if with_scheme.ends_with("/ws") {
+        with_scheme
+    } else {
+        format!("{with_scheme}/ws")
+    }
 }
 
 /// Boots the SFU on ephemeral ports. Everything binds to loopback, so the ICE
@@ -113,5 +134,8 @@ pub fn start_server() -> TestServer {
         })
         .expect("spawn http thread");
 
-    TestServer { http, secret }
+    TestServer {
+        ws_url: format!("ws://{http}/ws"),
+        secret,
+    }
 }
